@@ -1,0 +1,259 @@
+build.gradle====================================================================================================================================
+
+    
+    compileInclude group: "org.apache.poi", name: "poi"
+    compileInclude group: "org.apache.poi", name: "poi-ooxml"
+    compileInclude group: "org.apache.poi", name: "poi-ooxml-schemas"
+    compileInclude group: "org.apache.xmlbeans", name: "xmlbeans"
+    compileInclude group: "org.apache.commons", name: "commons-collections4"    
+    compileInclude group: "org.apache.commons", name: "commons-lang3"
+    compileInclude group: "org.apache.commons", name: "commons-compress"    
+	compileInclude group: 'org.apache.commons', name: 'commons-math3'
+    
+bnd.bnd====================================================================================================================================
+	
+	 Import-Package: \
+    !com.sun.*,\
+    !junit*,\
+    !org.apache.avalon.framework.logger,\
+    !org.apache.crimson.jaxp,\
+    !org.apache.jcp.xml.dsig.internal.dom,\
+    !org.apache.log,\
+    !org.apache.xml.resolver*,\
+    !org.bouncycastle.*,\
+    !org.gjt.xpp,\
+    !org.junit*,\
+    !org.relaxng.datatype,\
+    !org.xmlpull.v1,\
+    !com.microsoft.schemas.office.*,\
+    !com.zaxxer.sparsebits,\
+    !org.apache.batik.*,\
+    !com.graphbuilder*,\
+    !org.etsi.uri.x01903.v14,\
+    !org.openxmlformats.schemas.officeDocument.x2006.*,\
+    !org.openxmlformats.schemas.schemaLibrary.x2006.main,\
+    !net.sf.saxon.*,\
+    !org.apache.commons.codec.binary,\
+    !org.apache.commons.codec.digest,\
+    !com.github.luben.*,\
+    !org.brotli.*,\
+    !org.tukaani.xz,\
+    *
+	
+java====================================================================================================================================
+
+	
+import javax.portlet.ResourceRequest;
+import javax.portlet.ResourceResponse;
+import javax.servlet.http.HttpServletResponse;
+
+import org.apache.poi.openxml4j.opc.OPCPackage;
+import org.apache.poi.openxml4j.opc.PackageAccess;
+import org.apache.poi.poifs.crypt.EncryptionInfo;
+import org.apache.poi.poifs.crypt.EncryptionMode;
+import org.apache.poi.poifs.crypt.Encryptor;
+import org.apache.poi.poifs.filesystem.POIFSFileSystem;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.xssf.usermodel.XSSFCell;
+import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+import org.apache.poi.xssf.usermodel.XSSFFont;
+import org.apache.poi.xssf.usermodel.XSSFRow;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.Reference;
+
+import com.liferay.petra.string.CharPool;
+import com.liferay.petra.string.StringPool;
+import com.liferay.portal.kernel.dao.orm.DynamicQuery;
+import com.liferay.portal.kernel.dao.orm.RestrictionsFactoryUtil;
+import com.liferay.portal.kernel.log.Log;
+import com.liferay.portal.kernel.log.LogFactoryUtil;
+import com.liferay.portal.kernel.portlet.PortletResponseUtil;
+import com.liferay.portal.kernel.portlet.bridges.mvc.MVCPortlet;
+import com.liferay.portal.kernel.theme.ThemeDisplay;
+import com.liferay.portal.kernel.util.ContentTypes;
+import com.liferay.portal.kernel.util.FileUtil;
+import com.liferay.portal.kernel.util.HtmlUtil;
+import com.liferay.portal.kernel.util.ParamUtil;
+import com.liferay.portal.kernel.util.PortalUtil;
+import com.liferay.portal.kernel.util.StringBundler;
+import com.liferay.portal.kernel.util.StringUtil;
+import com.liferay.portal.kernel.util.Validator;
+import com.liferay.portal.kernel.util.WebKeys;
+import com.sbi.core.service.model.FeedbackForm;
+import com.sbi.core.service.service.FeedbackFormLocalService;
+import com.sbi.util.api.SBIUtil;
+
+@Component(
+	immediate = true,
+	property = {
+        "com.liferay.portlet.display-category=SBI-Internet",
+        "com.liferay.portlet.instanceable=true",
+        "javax.portlet.security-role-ref=power-user,user",
+        "javax.portlet.init-param.view-template=/viewFeedback.jsp",
+        "javax.portlet.resource-bundle=content.Language",
+        "javax.portlet.display-name=Feedback Report"
+    },
+    service = Portlet.class
+)
+public class SbiGetFeedbackPortlet extends MVCPortlet {
+
+	private Log log = LogFactoryUtil.getLog(SbiGetFeedbackPortlet.class);
+
+	@Reference
+	SBIUtil sbiUtil;
+
+	@Override
+	public void serveResource(ResourceRequest resourceRequest, ResourceResponse resourceResponse)
+			throws IOException, PortletException {
+		log.info("Inside serveResource");
+		ThemeDisplay themeDisplay = (ThemeDisplay) resourceRequest.getAttribute(WebKeys.THEME_DISPLAY);
+		try {
+
+			String sFromDate = HtmlUtil.escape(ParamUtil.getString(resourceRequest, "fromDate"));
+			String sToDate = HtmlUtil.escape(ParamUtil.getString(resourceRequest, "toDate"));
+			log.info("sFromDate : " + sFromDate);
+			log.info("sToDate : " + sToDate);
+
+			DynamicQuery dynamicQuery = feedbackFormLocalService.dynamicQuery();
+			Date fromDate = null;
+			Date toDate = null;
+			if (Validator.isNotNull(sFromDate)) {
+				fromDate = new SimpleDateFormat("dd-MMM-yyyy").parse(sFromDate);
+			}
+			if (Validator.isNotNull(sToDate)) {
+				toDate = new SimpleDateFormat("dd-MMM-yyyy").parse(sToDate);
+				Calendar toCal = Calendar.getInstance();
+				toCal.setTime(toDate);
+				toCal.set(Calendar.MILLISECOND, 59);
+				toCal.set(Calendar.SECOND, 59);
+				toCal.set(Calendar.MINUTE, 59);
+				toCal.set(Calendar.HOUR, 23);
+				toDate = toCal.getTime();
+			}
+			log.info("fromDate : " + fromDate);
+			log.info("toDate : " + toDate);
+			long gid = themeDisplay.getSiteGroupId();
+			log.info("Data is::" + gid);
+			if (Validator.isNotNull(fromDate) && Validator.isNotNull(toDate)) {
+				dynamicQuery.add(RestrictionsFactoryUtil.between("createDate", fromDate, toDate));
+				dynamicQuery.add(RestrictionsFactoryUtil.eq("groupId", gid));
+			} else if (Validator.isNotNull(fromDate) && Validator.isNull(toDate)) {
+				dynamicQuery.add(RestrictionsFactoryUtil.ge("createDate", fromDate));
+				dynamicQuery.add(RestrictionsFactoryUtil.eq("groupId", gid));
+			} else if (Validator.isNull(fromDate) && Validator.isNotNull(toDate)) {
+				dynamicQuery.add(RestrictionsFactoryUtil.ge("createDate", fromDate));
+				dynamicQuery.add(RestrictionsFactoryUtil.eq("groupId", gid));
+			}
+
+			log.debug("datails>>" + dynamicQuery);
+			StringBundler sb = new StringBundler();
+			for (String columnName : COLUMN_NAMES) {
+				sb.append(getCSVFormattedValue(columnName));
+				sb.append(StringPool.COMMA);
+				sb.append(StringPool.COMMA);
+				sb.setIndex(sb.index() - 1);
+			}
+			sb.append(CharPool.NEW_LINE);
+			DateFormat dateFormat = new SimpleDateFormat("dd-MM-yyyy");
+			List<FeedbackForm> feedbackform = feedbackFormLocalService.dynamicQuery(dynamicQuery);
+			log.info("----> feedbackform : " + feedbackform.size());
+
+			XSSFWorkbook workbook = new XSSFWorkbook();
+			XSSFSheet sheet = workbook.createSheet("Sheet1");
+			XSSFRow headerRow = sheet.createRow(0);
+			String[] headers = { "Create Date", "Name", "Email ID", "Phone No.", "Country", "City", "Type of Feedback",
+					"Title", "Description", "Is Customer", "Type of Customer", "Response Type" };
+
+			for (int i = 0; i < headers.length; i++) {
+				XSSFCell cell = headerRow.createCell(i);
+				cell.setCellValue(headers[i]);
+				XSSFCellStyle headerStyle = workbook.createCellStyle();
+				XSSFFont font = workbook.createFont();
+				headerStyle.setFont(font);
+				cell.setCellStyle(headerStyle);
+			}
+			int rowNum = 1;
+			for (FeedbackForm feedback : feedbackform) {
+				log.debug(feedback.getEmailId());
+				XSSFRow row = sheet.createRow(rowNum++);
+				row.createCell(0).setCellValue(dateFormat.format(feedback.getCreateDate()));
+				row.createCell(1).setCellValue(feedback.getName());
+				row.createCell(2).setCellValue(feedback.getEmailId());
+				row.createCell(3).setCellValue(feedback.getPhoneNo());
+				row.createCell(4).setCellValue(feedback.getCountry());
+				row.createCell(5).setCellValue(feedback.getCity());
+				row.createCell(6).setCellValue(feedback.getTypeOfFeedback());
+				row.createCell(7).setCellValue(feedback.getTitle());
+				row.createCell(8).setCellValue(feedback.getDescription());
+				row.createCell(9).setCellValue(feedback.getIsCustomer());
+				row.createCell(10).setCellValue(feedback.getTypeOFCustomer());
+				row.createCell(11).setCellValue(feedback.getResponseType());
+			}
+			for (int i = 0; i < headers.length; i++) {
+				sheet.autoSizeColumn(i);
+			}
+
+			File file = FileUtil.createTempFile("feedback-", "xlsx");
+			FileOutputStream outputStream = new FileOutputStream(file);
+			workbook.write(outputStream);
+
+			// Protecting the file with password
+			try (POIFSFileSystem fs = new POIFSFileSystem()) {
+				EncryptionInfo info = new EncryptionInfo(EncryptionMode.agile);
+				Encryptor enc = info.getEncryptor();
+				enc.confirmPassword("test"); // Password
+				try (OPCPackage opc = OPCPackage.open(file, PackageAccess.READ_WRITE);
+						OutputStream os = enc.getDataStream(fs)) {
+					opc.save(os);
+				}
+				try (FileOutputStream fos = new FileOutputStream(file)) {
+					fs.writeFilesystem(fos);
+				}
+			} catch (Exception e) {
+				log.error(e);
+			}
+
+			PortletResponseUtil.sendFile(resourceRequest, resourceResponse, file.getName(),
+					Files.readAllBytes(file.toPath()), ContentTypes.APPLICATION_TEXT);
+
+			workbook.close();
+
+		} catch (Exception ex) {
+			log.error("Exception in serveResource : ", ex);
+		}
+		log.info("End of serveResource");
+		super.serveResource(resourceRequest, resourceResponse);
+	}
+	
+	protected String getCSVFormattedValue(String value) {
+		StringBundler sb = new StringBundler(3);
+		sb.append(CharPool.QUOTE);
+		sb.append(StringUtil.replace(value, CharPool.QUOTE, StringPool.DOUBLE_QUOTE));
+		sb.append(CharPool.QUOTE);
+		return sb.toString();
+	}
+		
+	public static final String[] COLUMN_NAMES = { 
+		"Create Date",
+		"Name",
+		"Email ID",
+		"Phone No.", 
+		"Country",
+		"City",
+		"Type of Feedback",
+		"Title",
+		"Description",
+		"Is Customer",
+		"Type of Customer",
+		"Response Type"
+		
+	};
+
+	
+	
+	@Reference
+	private FeedbackFormLocalService feedbackFormLocalService;
+}
